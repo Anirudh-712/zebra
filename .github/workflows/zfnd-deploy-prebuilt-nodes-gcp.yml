@@ -212,9 +212,14 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # A failed cache image lookup only matters for a zone without a disk, which
+    # "Ensure zonal disk exists" rejects. Zones that already have their disk still
+    # roll out, for example after a state format change that no image matches yet.
     if: >-
       ${{
-        !cancelled() && !failure() &&
+        !cancelled() &&
+        needs.validate.result == 'success' &&
+        needs.ensure-health-checks.result == 'success' &&
         github.repository_owner == 'ZcashFoundation'
       }}
 
@@ -310,7 +315,7 @@ jobs:
             exit 0
           fi
           if [ -z "${CACHED_DISK_NAME}" ]; then
-            echo "::error::No ${DISK_NAME} and no cache image. Seed via integration-tests or manual snapshot."
+            echo "::error::No ${DISK_NAME} and no cache image for this state version. See \"Bootstrap a disk without a cache image\" in gcp-deployment-operations.md."
             exit 1
           fi
           gcloud compute disks create "${DISK_NAME}" --zone="${ZONE}" \
@@ -530,15 +535,24 @@ jobs:
       - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe #v1.2.2
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: get-disk-name-mainnet, get-disk-name-testnet
+          # A lookup failure only fails a zone that needed the image, in deploy-nodes.
+          allowed-failures: get-disk-name-mainnet, get-disk-name-testnet
 
   failure-issue:
     name: Open or update issues for deploy failures
-    needs: [validate, deploy-nodes]
+    needs: [validate, ensure-health-checks, deploy-nodes]
     # PR statuses are already reported in the PR jobs list, so only open tickets for
     # non-PR callers. No caller deploys on a pull_request today; this keeps that true
-    # if one ever does.
-    if: ${{ (failure() || cancelled()) && github.event.pull_request == null }}
+    # if one ever does. `failure()` would also count a cache image lookup that failed
+    # without failing any zone, so the jobs that decide the deploy are named instead.
+    if: >-
+      ${{
+        always() && github.event.pull_request == null &&
+        (cancelled() ||
+        needs.validate.result == 'failure' ||
+        needs.ensure-health-checks.result == 'failure' ||
+        needs.deploy-nodes.result == 'failure')
+      }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read

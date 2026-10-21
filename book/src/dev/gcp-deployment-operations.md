@@ -31,6 +31,7 @@ The per-MIG concurrency lock covers both stages, so another run cannot replace t
 | Run changes on nodes before `main`, compare with stage | [The `next` branch](next-branch.md)                         |
 | Diagnose a deploy that does not converge             | [Diagnose a stuck MIG](#diagnose-a-stuck-mig)                 |
 | Recover from a corrupted cache disk                  | [Recover a corrupted cache disk](#recover-a-corrupted-cache-disk) |
+| Create a disk when no cache image matches            | [Bootstrap a disk without a cache image](#bootstrap-a-disk-without-a-cache-image) |
 | Cut a release with a backwards-incompatible DB format | [DB-format-version-break release](#db-format-version-break-release) |
 | Migrate a regional MIG to zonal                      | [Regional-to-zonal migration](#regional-to-zonal-migration)   |
 | Look up cache images, static IPs, daily cleanup      | [Reference](#reference)                                       |
@@ -162,6 +163,26 @@ gh workflow run zfnd-deploy-nodes-gcp.yml -R ZcashFoundation/zebra \
 ```
 
 For production: set `P=zfnd-prod-zebra`, `MIG=zebrad-${NET}-${ZONE_LETTER}`, `DISK=zebrad-cache-${NET}-${ZONE_LETTER}`. Production has no automatic cache image; restore from a recent operator-taken snapshot.
+
+## Bootstrap a disk without a cache image
+
+A deploy looks up a cache image whose state format major version matches the source commit. When none exists, zones that already have their disk still roll out, but a zone without a disk fails with `No <disk> and no cache image for this state version`. This happens when `next` gains a major state format change before `main` has a cache image for it, or when a zone is added.
+
+Create the missing disk from the newest cache image of any version, then rerun the deploy:
+
+```bash
+NET=mainnet; ZONE=us-east1-b; ZONE_LETTER=b
+ENV=next; DISK=zebrad-cache-next-${NET}-${ZONE_LETTER}   # or ENV=stage, zebrad-cache-main-...
+
+IMAGE=$(gcloud compute images list --project $P \
+  --filter="status=READY AND name~^zebrad-cache-main-.*-${NET}-tip" \
+  --sort-by=~creationTimestamp --limit=1 --format='value(name)')
+gcloud compute disks create "$DISK" --zone "$ZONE" --project $P \
+  --image "$IMAGE" --size 400 --type pd-balanced \
+  --labels="app=zebrad,environment=${ENV},network=${NET},zone=${ZONE_LETTER}"
+```
+
+When the image has an older major version, the new Zebra deletes that state and syncs the new format from genesis, which takes days on Mainnet. The image only gives the disk a filesystem. Integration tests on `main` create a matching image once the format change merges there; until then, there is no faster start.
 
 ## DB-format-version-break release
 

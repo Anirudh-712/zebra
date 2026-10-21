@@ -102,6 +102,8 @@ In Cloud Logging for `zfnd-dev-zebra`, every node logs its estimated progress to
 
 Each deploy restarts the nodes it changes, so compare nodes after both have run for a similar time since their last deploy. To compare syncing from the same starting point, recover both disks from the same cache image with the [corrupted cache disk recipe](gcp-deployment-operations.md#recover-a-corrupted-cache-disk).
 
+A major state format change on `next` has no matching cache image until it reaches `main`. Zones with a disk still deploy it, and the new format syncs from genesis there. A zone without a disk needs the [bootstrap recipe](gcp-deployment-operations.md#bootstrap-a-disk-without-a-cache-image).
+
 A pull request that changes the state database format upgrades the `next` disks when it deploys, and reverting it on `next` doesn't undo that. Within the same major format version, the reverted code opens the upgraded state on a best-effort basis. A major format change keeps the state in a new directory, so the reverted code goes back to the older directory on the disk, which may be stale or empty. The [state database upgrade rules](state-db-upgrades.md) explain both cases. To start clean, recover the `next` disks from a `main` cache image.
 
 ## One-Time Setup
