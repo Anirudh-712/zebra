@@ -2,7 +2,7 @@
 
 Operational procedures for the GCP Continuous Delivery pipeline. Architectural rationale: [ADR 0006](../../../docs/decisions/devops/0006-gcp-deployment-naming.md). High-level model: [Continuous Delivery](continuous-delivery.md).
 
-Two GCP projects (`zfnd-prod-zebra`, `zfnd-dev-zebra`) in `us-east1`, zones `b`, `c`, `d`. Every MIG, instance, and disk carries `environment`, `network`, `zone`, `created_by`, `github_ref`, and `github_sha` labels. The `environment` label is standardized as `dev`, `stage`, or `prod`. Use `created_by` as the kind discriminator: `release`, `push`, or `workflow_dispatch`.
+Two GCP projects (`zfnd-prod-zebra`, `zfnd-dev-zebra`) in `us-east1`, zones `b`, `c`, `d`. Every MIG, instance, and disk carries `environment`, `network`, `zone`, `created_by`, `github_ref`, and `github_sha` labels. The `environment` label is standardized as `dev`, `stage`, `next`, or `prod`. Use `created_by` as the kind discriminator: `release`, `push`, or `workflow_dispatch`.
 
 The recipes below assume `gh` and `gcloud` are authenticated, and use these shell defaults when scoped to dev:
 
@@ -28,6 +28,7 @@ The per-MIG concurrency lock covers both stages, so another run cannot replace t
 | Goal                                                 | Section                                                       |
 | ---------------------------------------------------- | ------------------------------------------------------------- |
 | Smoke-test a PR branch / find / label / reap         | [PR deploys](#pr-deploys)                                     |
+| Run changes on nodes before `main`, compare with stage | [The `next` branch](next-branch.md)                         |
 | Diagnose a deploy that does not converge             | [Diagnose a stuck MIG](#diagnose-a-stuck-mig)                 |
 | Recover from a corrupted cache disk                  | [Recover a corrupted cache disk](#recover-a-corrupted-cache-disk) |
 | Cut a release with a backwards-incompatible DB format | [DB-format-version-break release](#db-format-version-break-release) |
@@ -249,10 +250,13 @@ Repeat for Testnet. After all six (2 networks × 3 zones) zonal MIGs are HEALTHY
 - `us-east1-c` → `zebra-${network}-secondary`
 - `us-east1-d` → `zebra-${network}-tertiary`
 
-The workflow assigns them via per-instance configs whenever the caller passes `use_reserved_ip`: always for `push` and `release`, and for a workflow_dispatch that either selects `prod` or runs from the `main` ref. Two dispatch cases to watch:
+Stage and production use these names in their own projects. `next` shares stage's project, so its addresses are `zebra-next-${network}`, `zebra-next-${network}-secondary`, and `zebra-next-${network}-tertiary`.
+
+The workflow assigns them via per-instance configs whenever the caller passes `use_reserved_ip`: always for `push` and `release`, and for a workflow_dispatch that selects `prod` or `next`, or runs from the `main` or `next` ref. Three dispatch cases to watch:
 
 - Selecting `prod` updates the stable production MIG and its reserved IP for the selected network and zone, from whatever ref you dispatched.
-- Selecting `dev` **from the `main` ref** resolves to the `main-` prefix, so it updates the **stage** MIG and its reserved address — not a branch-private one.
+- Selecting `next` updates the `next` MIG and its reserved IP the same way, from whatever ref you dispatched.
+- Selecting `dev` **from the `main` or `next` ref** resolves to the `main-` or `next-` prefix, so it updates the **stage** or **next** MIG and its reserved address — not a branch-private one.
 
 Every other dev workflow_dispatch gets no external IP at all: the instance template passes `--no-address`, so those instances reach the network outbound-only and never advertise a `ZEBRA_NETWORK__EXTERNAL_ADDR`. Reserve new addresses manually with `gcloud compute addresses create` before adding capacity.
 
@@ -266,4 +270,4 @@ gcloud compute images list --project zfnd-dev-zebra \
   --sort-by=~creationTimestamp --limit=5
 ```
 
-**Daily cleanup** (`zfnd-delete-gcp-resources.yml`) sweeps old instances, templates, disks, and cache images by age and name. It does not honor `keep_until` or `delete_protection` labels on PR deploys; use the [sweep recipe](#sweep-expired) for label-aware control. The twelve stable cache disks (`zebrad-cache-{mainnet,testnet}-{b,c,d}` in production, `zebrad-cache-main-{mainnet,testnet}-{b,c,d}` in stage) are never eligible because GCP refuses to delete attached disks; if any stable disk ever shows up unattached, that is itself an incident.
+**Daily cleanup** (`zfnd-delete-gcp-resources.yml`) sweeps old instances, templates, disks, and cache images by age and name. It does not honor `keep_until` or `delete_protection` labels on PR deploys; use the [sweep recipe](#sweep-expired) for label-aware control. The eighteen stable cache disks (`zebrad-cache-{mainnet,testnet}-{b,c,d}` in production, `zebrad-cache-main-{mainnet,testnet}-{b,c,d}` in stage, and `zebrad-cache-next-{mainnet,testnet}-{b,c,d}` in next) are never eligible because GCP refuses to delete attached disks; if any stable disk ever shows up unattached, that is itself an incident.
