@@ -120,7 +120,7 @@ These settings live outside git, so a maintainer applies them once before the fi
    done
    ```
 
-3. Add a branch ruleset for `refs/heads/next` that requires a pull request with no approvals, requires the `lint`, `unit-tests`, `test-crates`, `pr-gate-result`, and `merge-policy` checks, allows only merge commits, and blocks force pushes and deletion.
+3. Add a branch ruleset for `refs/heads/next`, named `next branch`, that requires a pull request with no approvals, requires the `lint`, `unit-tests`, `test-crates`, `pr-gate-result`, and `merge-policy` checks, allows only merge commits, and blocks force pushes and deletion.
 4. Create `next` from `main`:
 
    ```bash
