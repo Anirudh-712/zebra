@@ -203,11 +203,6 @@ jobs:
     needs: [validate, get-disk-name-mainnet, get-disk-name-testnet, ensure-health-checks]
     runs-on: ubuntu-26.04
     timeout-minutes: 120
-    env:
-      CACHED_DISK_NAME: >-
-        ${{ matrix.network == 'Mainnet'
-            && needs.get-disk-name-mainnet.outputs.cached_disk_name
-            || needs.get-disk-name-testnet.outputs.cached_disk_name }}
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
@@ -310,9 +305,19 @@ jobs:
         env:
           CREATED_BY: ${{ inputs.created_by }}
           ENVIRONMENT: ${{ inputs.environment }}
+          MAINNET_CACHED_DISK_NAME: ${{ needs.get-disk-name-mainnet.outputs.cached_disk_name }}
+          MATRIX_NETWORK: ${{ matrix.network }}
+          TESTNET_CACHED_DISK_NAME: ${{ needs.get-disk-name-testnet.outputs.cached_disk_name }}
         run: |
           if gcloud compute disks describe "${DISK_NAME}" --zone="${ZONE}" &>/dev/null; then
             exit 0
+          fi
+          # A failed lookup leaves its network's name empty, so never fall back to the
+          # other network's image.
+          if [ "${MATRIX_NETWORK}" = "Mainnet" ]; then
+            CACHED_DISK_NAME="${MAINNET_CACHED_DISK_NAME}"
+          else
+            CACHED_DISK_NAME="${TESTNET_CACHED_DISK_NAME}"
           fi
           if [ -z "${CACHED_DISK_NAME}" ]; then
             echo "::error::No ${DISK_NAME} and no cache image for this state version. See \"Bootstrap a disk without a cache image\" in gcp-deployment-operations.md."

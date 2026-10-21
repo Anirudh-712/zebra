@@ -61,7 +61,7 @@ jobs:
     # pull requests always run the tests: a skip would replace a failed run's result.
     if: >-
       needs.changes.outputs.unit_tests == 'true' &&
-      (github.base_ref != 'next' ||
+      (github.base_ref == 'next' ||
       github.event.action != 'labeled' ||
       github.event.label.name == 'release')
     permissions:
